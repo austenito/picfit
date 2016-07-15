@@ -3,14 +3,12 @@ package application
 import (
 	"fmt"
 	"github.com/getsentry/raven-go"
-	"github.com/jmoiron/jsonq"
 	"github.com/thoas/gostorages"
-	"github.com/thoas/picfit/dummy"
 	"github.com/thoas/picfit/engines"
 	"github.com/thoas/picfit/util"
 )
 
-type Initializer func(jq *jsonq.JsonQuery, app *Application) error
+type Initializer func(app *Application) error
 
 var Initializers = []Initializer{
 	KVStoreInitializer,
@@ -32,22 +30,12 @@ var Storages = map[string]StorageParameter{
 	"fs":      FileSystemStorageParameter,
 }
 
-var SentryInitializer Initializer = func(jq *jsonq.JsonQuery, app *Application) error {
-	dsn, err := jq.String("sentry", "dsn")
-
-	if err != nil {
-		return nil
-	}
-
-	results, err := jq.Object("sentry", "tags")
+var SentryInitializer Initializer = func(app *Application) error {
+	results := app.Config.GetStringMapString("sentry.tags")
 
 	var tags map[string]string
 
-	if err != nil {
-		tags = map[string]string{}
-	} else {
-		tags = util.MapInterfaceToMapString(results)
-	}
+	tags = util.MapInterfaceToMapString(results)
 
 	client, err := raven.NewClient(dsn, tags)
 
@@ -60,58 +48,38 @@ var SentryInitializer Initializer = func(jq *jsonq.JsonQuery, app *Application) 
 	return nil
 }
 
-var BasicInitializer Initializer = func(jq *jsonq.JsonQuery, app *Application) error {
-	var format string
-	var quality int
+var BasicInitializer Initializer = func(app *Application) error {
 
-	f, _ := jq.String("options", "format")
-
-	if f != "" {
-		format = f
-	}
-
-	q, err := jq.Int("options", "quality")
-
-	if err != nil {
-		quality = q
-	}
+	format := app.Config.GetString("options.format")
+	quality := app.Config.GetInt("options.quality")
 
 	if quality == 0 {
 		quality = DefaultQuality
 	}
 
-	app.SecretKey, _ = jq.String("secret_key")
+	app.SecretKey = app.Config.GetString("secret_key")
 	app.Engine = &engines.GoImageEngine{
 		DefaultFormat:  DefaultFormat,
 		Format:         format,
 		DefaultQuality: quality,
 	}
 
-	enableUpload, err := jq.Bool("options", "enable_upload")
-
-	if err == nil {
-		app.EnableUpload = enableUpload
-	}
-
-	enableDelete, err := jq.Bool("options", "enable_delete")
-
-	if err == nil {
-		app.EnableDelete = enableDelete
-	}
+	enableUpload := app.Config.GetBool("options.enable_upload")
+	enableDelete := app.Config.GetBool("options.enable_delete")
 
 	return nil
 }
 
-var ShardInitializer Initializer = func(jq *jsonq.JsonQuery, app *Application) error {
-	width, err := jq.Int("shard", "width")
+var ShardInitializer Initializer = func(app *Application) error {
+	width := app.Config.GetInt("shard.width")
 
-	if err != nil {
+	if width == 0 {
 		width = DefaultShardWidth
 	}
 
-	depth, err := jq.Int("shard", "depth")
+	depth := app.Config.GetInt("shard.depth")
 
-	if err != nil {
+	if depth == 0 {
 		depth = DefaultShardDepth
 	}
 
@@ -120,20 +88,8 @@ var ShardInitializer Initializer = func(jq *jsonq.JsonQuery, app *Application) e
 	return nil
 }
 
-var KVStoreInitializer Initializer = func(jq *jsonq.JsonQuery, app *Application) error {
-	_, err := jq.Object("kvstore")
-
-	if err != nil {
-		app.KVStore = &dummy.DummyKVStore{}
-
-		return nil
-	}
-
-	key, err := jq.String("kvstore", "type")
-
-	if err != nil {
-		return err
-	}
+var KVStoreInitializer Initializer = func(app *Application) error {
+	key := app.Config.GetString("kvstore.type")
 
 	parameter, ok := KVStores[key]
 
@@ -141,11 +97,7 @@ var KVStoreInitializer Initializer = func(jq *jsonq.JsonQuery, app *Application)
 		return fmt.Errorf("KVStore %s does not exist", key)
 	}
 
-	config, err := jq.Object("kvstore")
-
-	if err != nil {
-		return err
-	}
+	config := app.Config.GetStringMapString("kvstore")
 
 	params := util.MapInterfaceToMapString(config)
 	store, err := parameter(params)
@@ -160,8 +112,8 @@ var KVStoreInitializer Initializer = func(jq *jsonq.JsonQuery, app *Application)
 	return nil
 }
 
-func getStorageFromConfig(key string, jq *jsonq.JsonQuery) (gostorages.Storage, error) {
-	storageType, err := jq.String("storage", key, "type")
+func getStorageFromConfig(key string, app *Application) (gostorages.Storage, error) {
+	storageType := app.Config.GetString("storage." + key + ".type")
 
 	parameter, ok := Storages[storageType]
 
@@ -169,7 +121,7 @@ func getStorageFromConfig(key string, jq *jsonq.JsonQuery) (gostorages.Storage, 
 		return nil, fmt.Errorf("Storage %s does not exist", key)
 	}
 
-	config, err := jq.Object("storage", key)
+	config, err := app.GetStringMapString("storage." + key)
 
 	if err != nil {
 		return nil, err
@@ -184,25 +136,12 @@ func getStorageFromConfig(key string, jq *jsonq.JsonQuery) (gostorages.Storage, 
 	return storage, err
 }
 
-var StorageInitializer Initializer = func(jq *jsonq.JsonQuery, app *Application) error {
-	_, err := jq.Object("storage")
-
-	if err != nil {
-		app.SourceStorage = &dummy.DummyStorage{}
-		app.DestStorage = &dummy.DummyStorage{}
-
-		return nil
-	}
-
-	sourceStorage, err := getStorageFromConfig("src", jq)
-
-	if err != nil {
-		return err
-	}
+var StorageInitializer Initializer = func(app *Application) error {
+	sourceStorage := getStorageFromConfig("src", app)
 
 	app.SourceStorage = sourceStorage
 
-	destStorage, err := getStorageFromConfig("dst", jq)
+	destStorage, err := getStorageFromConfig("dst", app)
 
 	if err != nil {
 		app.DestStorage = sourceStorage

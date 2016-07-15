@@ -7,7 +7,6 @@ import (
 	"github.com/codegangsta/negroni"
 	"github.com/getsentry/raven-go"
 	"github.com/gorilla/mux"
-	"github.com/jmoiron/jsonq"
 	"github.com/meatballhat/negroni-logrus"
 	"github.com/rs/cors"
 	"github.com/thoas/gokvstores"
@@ -17,9 +16,9 @@ import (
 	"github.com/thoas/picfit/image"
 	"github.com/thoas/picfit/middleware"
 	"github.com/thoas/stats"
-	"io/ioutil"
 	"net/http"
 	"strings"
+  viper "github.com/spf13/viper"
 )
 
 type Shard struct {
@@ -39,54 +38,65 @@ type Application struct {
 	Raven         *raven.Client
 	Logger        *logrus.Logger
 	Engine        engines.Engine
-	Jq            *jsonq.JsonQuery
+	Config        *viper.Viper
 }
 
 func NewApplication() *Application {
+	config := viper.New()
+	config.AutomaticEnv()
+  config.SetConfigName("config")
+  config.AddConfigPath(".")
+  err := config.ReadInConfig()
+
+  if err != nil { 
+    panic(fmt.Errorf("Fatal error config file: %s \n", err))
+  }
+
 	return &Application{
 		Logger:       logrus.New(),
 		EnableUpload: false,
+		Config: config,
 	}
 }
 
-func NewFromConfigPath(path string) (*Application, error) {
-	content, err := ioutil.ReadFile(path)
+//func NewFromConfigPath(path string) (*Application, error) {
+	//content, err := ioutil.ReadFile(path)
 
-	if err != nil {
-		return nil, fmt.Errorf("Your config file %s cannot be loaded: %s", path, err)
-	}
+	//if err != nil {
+		//return nil, fmt.Errorf("Your config file %s cannot be loaded: %s", path, err)
+	//}
 
-	return NewFromConfig(string(content))
-}
+	//return NewFromConfig(string(content))
+//}
 
-func NewFromConfig(content string) (*Application, error) {
-	data := map[string]interface{}{}
-	dec := json.NewDecoder(strings.NewReader(content))
-	err := dec.Decode(&data)
+//func NewFromConfig(content string) (*Application, error) {
+	//data := map[string]interface{}{}
+	//dec := json.NewDecoder(strings.NewReader(content))
+	//err := dec.Decode(&data)
 
-	if err != nil {
-		return nil, fmt.Errorf("Your config file %s cannot be parsed: %s", content, err)
-	}
+	//if err != nil {
+		//return nil, fmt.Errorf("Your config file %s cannot be parsed: %s", content, err)
+	//}
 
-	jq := jsonq.NewQuery(data)
+	//jq := jsonq.NewQuery(data)
 
-	return NewFromJsonQuery(jq)
-}
+	//return NewFromJsonQuery(jq)
+//}
 
-func NewFromJsonQuery(jq *jsonq.JsonQuery) (*Application, error) {
-	app := NewApplication()
-	app.Jq = jq
+//func NewFromJsonQuery(jq *jsonq.JsonQuery) (*Application, error) {
+	//app := NewApplication()
+	//app.Jq = jq
 
-	for _, initializer := range Initializers {
-		err := initializer(jq, app)
+	//for _, initializer := range Initializers {
+		//err := initializer(jq, app)
 
-		if err != nil {
-			return nil, fmt.Errorf("An error occured during init: %s", err)
-		}
-	}
+		//if err != nil {
+			//return nil, fmt.Errorf("An error occured during init: %s", err)
+		//}
+	//}
 
-	return app, nil
-}
+	//return app, nil
+//}
 
 func (app *Application) ServeHTTP(h Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -147,8 +157,8 @@ func (a *Application) InitRouter() *negroni.Negroni {
 		})).Methods("DELETE")
 	}
 
-	allowedOrigins, err := a.Jq.ArrayOfStrings("allowed_origins")
-	allowedMethods, err := a.Jq.ArrayOfStrings("allowed_methods")
+	allowedOrigins := a.Config.GetStringSlice("allowed_origins")
+	allowedMethods := a.Config.GetStringSlice("allowed_methods")
 
 	s := stats.New()
 
@@ -162,11 +172,7 @@ func (a *Application) InitRouter() *negroni.Negroni {
 		w.Write(b)
 	})
 
-	debug, err := a.Jq.Bool("debug")
-
-	if err != nil {
-		debug = false
-	}
+	debug := a.Config.GetBool("debug")
 
 	n := negroni.New(&middleware.Recovery{
 		Raven:      a.Raven,
@@ -186,11 +192,7 @@ func (a *Application) InitRouter() *negroni.Negroni {
 }
 
 func (a *Application) Port() int {
-	port, err := a.Jq.Int("port")
-
-	if err != nil {
-		port = DefaultPort
-	}
+	port := a.Config.GetInt("port")
 
 	return port
 }

@@ -11,11 +11,7 @@ import (
 func Run(path string) error {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	app, err := NewFromConfigPath(path)
-
-	if err != nil {
-		return err
-	}
+	app := NewApplication()
 
 	n := app.InitRouter()
 
