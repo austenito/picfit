@@ -20,6 +20,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"os"
+	"strconv"
 )
 
 type Shard struct {
@@ -186,13 +188,18 @@ func (a *Application) InitRouter() *negroni.Negroni {
 }
 
 func (a *Application) Port() int {
-	port, err := a.Jq.Int("port")
+	if IsProduction() {
+		port, _ := strconv.Atoi(os.Getenv("PORT"))
+		return port
+	} else {
+		port, err := a.Jq.Int("port")
 
-	if err != nil {
-		port = DefaultPort
+		if err != nil {
+			port = DefaultPort
+		}
+
+		return port
 	}
-
-	return port
 }
 
 func (a *Application) ShardFilename(filename string) string {

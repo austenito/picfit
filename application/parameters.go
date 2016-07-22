@@ -7,6 +7,8 @@ import (
 	"github.com/thoas/gostorages"
 	"github.com/thoas/picfit/http"
 	"strconv"
+	"os"
+	"strings"
 )
 
 type KVStoreParameter func(params map[string]string) (gokvstores.KVStore, error)
@@ -27,15 +29,28 @@ var CacheKVStoreParameter KVStoreParameter = func(params map[string]string) (gok
 }
 
 var RedisKVStoreParameter KVStoreParameter = func(params map[string]string) (gokvstores.KVStore, error) {
-	host := params["host"]
+  db, _ := strconv.Atoi(params["db"])
 
-	password := params["password"]
+	if IsProduction() {
+		redisUrl := os.Getenv("REDIS_URL")
+		redisUrl = strings.Replace(redisUrl, "redis://", "", 1)
+		
+		splitUrl := strings.Split(redisUrl, ":")
+		splitPasswordAndHost := strings.Split(splitUrl[1], "@")
 
-	port, _ := strconv.Atoi(params["port"])
+		host := splitPasswordAndHost[1]
+		password := splitPasswordAndHost[0]
+		port, _ := strconv.Atoi(splitUrl[2])
 
-	db, _ := strconv.Atoi(params["db"])
+	  return gokvstores.NewRedisKVStore(host, port, password, db), nil
+	} else {
+		host := params["host"]
+		password := params["password"]
+		port, _ := strconv.Atoi(params["port"])
+		db, _ := strconv.Atoi(params["db"])
 
-	return gokvstores.NewRedisKVStore(host, port, password, db), nil
+	  return gokvstores.NewRedisKVStore(host, port, password, db), nil
+	}
 }
 
 var FileSystemStorageParameter StorageParameter = func(params map[string]string) (gostorages.Storage, error) {
@@ -84,13 +99,33 @@ var S3StorageParameter StorageParameter = func(params map[string]string) (gostor
 		return nil, fmt.Errorf("The Region %s does not exist", params["region"])
 	}
 
-	return gostorages.NewS3Storage(
-		params["access_key_id"],
-		params["secret_access_key"],
-		params["bucket_name"],
-		params["location"],
-		Region,
-		ACL,
-		params["base_url"],
-	), nil
+	if IsProduction() {
+		return gostorages.NewS3Storage(
+			os.Getenv("S3_ACCESS_KEY"),
+			os.Getenv("S3_SECRET_ACCESS_KEY"),
+			os.Getenv("S3_BUCKET_NAME"),
+			params["location"],
+			Region,
+			ACL,
+			params["base_url"],
+		), nil
+	} else {
+		return gostorages.NewS3Storage(
+			params["access_key_id"],
+			params["secret_access_key"],
+			params["bucket_name"],
+			params["location"],
+			Region,
+			ACL,
+			params["base_url"],
+		), nil
+  }
+}
+
+var IsProduction = func() bool {
+	if os.Getenv("GO_ENV") == "production" {
+		return true
+	} else {
+		return false
+	}
 }
