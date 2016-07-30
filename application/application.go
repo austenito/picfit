@@ -296,7 +296,8 @@ func (a *Application) ImageFileFromRequest(req *Request, async bool, load bool) 
 		file, err = a.Engine.Transform(file, req.Operation, req.QueryString)
 
 		if err != nil {
-			return nil, err
+		  a.Logger.Infof("Failed to convert: %s", req.Filepath)
+			file, err = image.FromStorage(a.SourceStorage, req.Filepath)
 		}
 
 		file.Filepath = fmt.Sprintf("%s.%s", a.ShardFilename(req.Key), file.Format())
